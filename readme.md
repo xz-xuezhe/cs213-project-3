@@ -14,7 +14,7 @@ SID: 12311012
 
 ##### 2.1.1 硬件配置
 
-本次测试中使用的服务器配置为
+本次测试中使用的华为云服务器配置为
 
 - 规格名称：kc1.large.2
 - vCPUs: 2vCPUs
@@ -100,11 +100,11 @@ PostgreSQL 初步测试结果图像如下（[详细结果](https://xz-xuezhe.git
 
 并另外调整 BenchmarkSQL 运行的线程数量，对运行结果进行比较。
 
-| 线程数量 | openGauss | PostgreSQL | 比值 |
-| :------: | :-------: | :--------: | :--: |
-|    1     |  2550.60  |  4160.20   | 1.63 |
-|    10    |  5569.60  |  17476.60  | 3.14 |
-|   100    |  2182.40  |  11621.80  | 5.33 |
+| 线程数量 | tpmC (openGauss) | tpmC (PostgreSQL) | 比值 |
+| :------: | :--------------: | :---------------: | :--: |
+|    1     |     2550.60      |      4160.20      | 1.63 |
+|    10    |     5569.60      |     17476.60      | 3.14 |
+|   100    |     2182.40      |     11621.80      | 5.33 |
 
 可以注意到注意到二者的 tpmC 随线程数量均呈先上升后下降的趋势，且随线程数增加，PostgreSQL 相比 openGauss 的性能优势越发明显。
 
@@ -131,3 +131,43 @@ DB4AI 部分则主要聚焦于直接在数据库内进行机器学习，使得�
 根据上面的比较，同取当前最新版本，在 BenchmarkSQL 的测试下，openGauss 的性能低于 PostgreSQL，但测试过程中速度的稳定性较好。
 
 同时，相比于 PostgreSQL，openGauss 将 AI 融合进数据库中，形成了其独特优势，但 AI4DB 部分目前疑似处于不可用状态。
+
+### 附录 性能测试常见问题排查
+
+- 为什么我在数据库服务器能够通过终端工具（psql/gsql）访问数据库，并在安全组设置/防火墙中开放了对应端口，但无法在远端通过客户端访问？
+
+需要配置服务器的监听地址以及服务器与客户端的连接规则。该过程在上面提到的 PostgreSQL 编译安装教程中提到了，但在 openGauss 的安装教程中并未强调。
+
+修改数据库数据目录下 `postgresql.conf` 文件，设置监听地址：
+
+```
+listen_addresses = '*'
+```
+
+除此之外，还需要在数据库数据目录下的 `pg_hba.conf` 文件末尾添加一行：
+
+```
+host <database> <user> <address> <auth_method>
+```
+
+其中 `<database>` 为允许客户端访问的数据库，`<user>` 为允许客户端使用的数据库用户，`<address>` 为允许的客户端网段，`<auth_method>` 为身份验证方式，具体可参考 [PostgreSQL 文档](https://www.postgresql.org/docs/current/auth-pg-hba-conf.html)。
+
+例：
+
+```
+host tpcc1000 jack 192.168.0.219/32 trust
+```
+
+若使用外网机器访问，建议选择更加安全的身份验证方式。
+
+修改后需要重启数据库服务。
+
+- 为什么我在运行测试脚本时出现了 `Invalid SCRAM client initialization` 或 `Protocol error.  Session setup failed.` 的错误提示？
+
+openGauss 与最新版 PostgreSQL 的 JDBC 驱动并不通用。openGauss 的 JDBC 驱动可以在 <https://opengauss.org/zh/download/> 中找到，PostgreSQL 的 JDBC 驱动可以在 https://jdbc.postgresql.org/ 找到。下载后覆盖 BenchmarkSQL 目录下 `lib/postgres/postgresql.jar` 即可。建议下载后在本地留存两个驱动的副本，以便重复进行测试。
+
+- 我正确配置了 SSH 互信，为什么没有成功收集数据库服务器系统负载？
+
+若你使用了其他品牌的服务器，请确保配置文件中 `osCollectorDevices` 项配置正确，格式为 `osCollectorDevices=net_<net_name> blk_<blk_name>`。其中 `<net_name>` 为网卡名称，可使用 `ifconfig` 命令查出；`<blk_name>` 为数据库数据目录所处磁盘分区，可使用 `df` 命令查出。
+
+除此之外，一些不规范的 openGauss 安装教程可能有使用 Python 3 可执行文件链接覆盖 Python 2 的步骤，请务必保证数据库服务器中 `python` 命令对应的版本为 Python 2，可以通过 `python -V` 命令查看。
